@@ -538,6 +538,27 @@ def _model_prefers_responses_api(model_name: str | None) -> bool:
     return "gpt-5.2-pro" in model_name or "codex" in model_name
 
 
+def _supports_temperature_for_gpt_5(
+    model_name: str, reasoning_effort: str | None
+) -> bool:
+    """Whether a gpt-5 model supports non-default temperatures.
+
+    gpt-5-chat variants support temperature. Other gpt-5 variants only support
+    non-default temperature when reasoning effort is effectively `none`.
+    gpt-5.2 defaults to `none` when effort is unspecified.
+    """
+    model_name_lower = model_name.lower()
+    if not model_name_lower.startswith("gpt-5"):
+        return True
+    if "chat" in model_name_lower:
+        return True
+    if reasoning_effort == "none":
+        return True
+    if reasoning_effort is None and model_name_lower.startswith("gpt-5.2"):
+        return True
+    return False
+
+
 _BM = TypeVar("_BM", bound=BaseModel)
 _DictOrPydanticClass: TypeAlias = dict[str, Any] | type[_BM] | type
 _DictOrPydantic: TypeAlias = dict | _BM
@@ -933,15 +954,12 @@ class BaseChatOpenAI(BaseChatModel):
         if model_lower.startswith("o1") and "temperature" not in values:
             values["temperature"] = 1
 
-        # For gpt-5 models, handle temperature restrictions. Temperature is supported
-        # by gpt-5-chat and gpt-5 models with reasoning_effort='none' or
-        # reasoning={'effort': 'none'}.
-        if (
-            model_lower.startswith("gpt-5")
-            and ("chat" not in model_lower)
-            and values.get("reasoning_effort") != "none"
-            and (values.get("reasoning") or {}).get("effort") != "none"
-        ):
+        reasoning_effort = values.get("reasoning_effort")
+        if reasoning_effort is None:
+            reasoning_effort = (values.get("reasoning") or {}).get("effort")
+
+        # For gpt-5 (non-chat), remove non-default temperatures when unsupported.
+        if not _supports_temperature_for_gpt_5(model_lower, reasoning_effort):
             temperature = values.get("temperature")
             if temperature is not None and temperature != 1:
                 # For gpt-5 (non-chat), only temperature=1 is supported
@@ -3946,15 +3964,10 @@ def _construct_responses_api_payload(
     if "reasoning_effort" in payload and "reasoning" not in payload:
         payload["reasoning"] = {"effort": payload.pop("reasoning_effort")}
 
-    # Remove temperature parameter for models that don't support it in responses API
-    # gpt-5-chat supports temperature, and gpt-5 models with reasoning.effort='none'
-    # also support temperature
+    # Remove temperature when unsupported for the selected gpt-5 model.
     model = payload.get("model") or ""
-    if (
-        model.startswith("gpt-5")
-        and ("chat" not in model)  # gpt-5-chat supports
-        and (payload.get("reasoning") or {}).get("effort") != "none"
-    ):
+    reasoning_effort = (payload.get("reasoning") or {}).get("effort")
+    if not _supports_temperature_for_gpt_5(model, reasoning_effort):
         payload.pop("temperature", None)
 
     payload["input"] = _construct_responses_api_input(messages)

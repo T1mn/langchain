@@ -3230,6 +3230,42 @@ def test_gpt_5_1_temperature_with_reasoning_effort_none(
     assert "temperature" not in payload
 
 
+def test_gpt_5_2_temperature_with_default_reasoning_effort_none() -> None:
+    """Test gpt-5.2 keeps temperature when reasoning effort is omitted."""
+    messages = [HumanMessage(content="Hello")]
+
+    llm = ChatOpenAI(model="gpt-5.2", temperature=0.5, use_responses_api=True)
+    payload = llm._get_request_payload(messages)
+    assert payload["temperature"] == 0.5
+
+    llm = ChatOpenAI(
+        model="gpt-5.2",
+        temperature=0.5,
+        reasoning_effort="none",
+        use_responses_api=True,
+    )
+    payload = llm._get_request_payload(messages)
+    assert payload["temperature"] == 0.5
+
+    llm = ChatOpenAI(
+        model="gpt-5.2",
+        temperature=0.5,
+        reasoning_effort="low",
+        use_responses_api=True,
+    )
+    payload = llm._get_request_payload(messages)
+    assert "temperature" not in payload
+
+    llm = ChatOpenAI(
+        model="gpt-5.2",
+        temperature=0.5,
+        reasoning={"effort": "low"},
+        use_responses_api=True,
+    )
+    payload = llm._get_request_payload(messages)
+    assert "temperature" not in payload
+
+
 def test_model_prefers_responses_api() -> None:
     assert _model_prefers_responses_api("gpt-5.2-pro")
     assert _model_prefers_responses_api("gpt-5.2-codex")
